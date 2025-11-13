@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Spline from '@splinetool/react-spline'
-import { Search, Play, Pause, Mic, Radio, Plus, ListMusic, Music2 } from 'lucide-react'
+import { Search, Play, Pause, Mic, Radio, Plus, ListMusic, Music2, X, Disc3, FolderPlus } from 'lucide-react'
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
@@ -35,7 +35,7 @@ function useAudio(url) {
   return { playing, play, pause, setUrl }
 }
 
-function Header({ onSearch }) {
+function Header({ onSearch, onOpenAdd }) {
   return (
     <div className="flex items-center justify-between px-6 py-4">
       <div className="text-2xl font-extrabold tracking-tight text-orange-600">Vibe Music</div>
@@ -48,7 +48,7 @@ function Header({ onSearch }) {
         />
       </div>
       <div className="flex items-center gap-3">
-        <button className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-full text-sm font-semibold transition"> <Plus className="w-4 h-4"/> Add Music</button>
+        <button onClick={onOpenAdd} className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-full text-sm font-semibold transition"> <Plus className="w-4 h-4"/> Add Music</button>
       </div>
     </div>
   )
@@ -127,23 +127,49 @@ function SectionTitle({ icon: Icon, title, action }) {
   )
 }
 
-function SongCard({ song, onPlay }) {
+function SongCard({ song, onPlay, onAddToPlaylist }) {
+  const [open, setOpen] = useState(false)
+  const [playlistId, setPlaylistId] = useState('')
   return (
-    <div className="group p-3 rounded-xl bg-white/70 border border-orange-200 hover:border-orange-300 hover:shadow-md transition flex items-center gap-3">
-      <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-orange-200 to-rose-200 overflow-hidden flex items-center justify-center text-orange-700">
-        {song.cover_url ? (
-          <img src={song.cover_url} alt={song.title} className="w-full h-full object-cover" />
-        ) : (
-          <Music2 className="w-6 h-6" />
-        )}
+    <div className="group p-3 rounded-xl bg-white/70 border border-orange-200 hover:border-orange-300 hover:shadow-md transition flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-orange-200 to-rose-200 overflow-hidden flex items-center justify-center text-orange-700">
+          {song.cover_url ? (
+            <img src={song.cover_url} alt={song.title} className="w-full h-full object-cover" />
+          ) : (
+            <Music2 className="w-6 h-6" />
+          )}
+        </div>
+        <div className="flex-1">
+          <div className="font-semibold text-orange-900">{song.title}</div>
+          <div className="text-sm text-orange-600">{song.artist}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => onPlay(song)} className="p-2 rounded-full bg-orange-500 text-white hover:bg-orange-600 transition">
+            <Play className="w-4 h-4" />
+          </button>
+          {onAddToPlaylist && (
+            <button onClick={() => setOpen(v => !v)} className="p-2 rounded-full bg-white border border-orange-300 text-orange-700 hover:bg-orange-50 transition" title="Add to playlist">
+              <FolderPlus className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="flex-1">
-        <div className="font-semibold text-orange-900">{song.title}</div>
-        <div className="text-sm text-orange-600">{song.artist}</div>
-      </div>
-      <button onClick={() => onPlay(song)} className="p-2 rounded-full bg-orange-500 text-white hover:bg-orange-600 transition">
-        <Play className="w-4 h-4" />
-      </button>
+      {open && (
+        <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+          <select value={playlistId} onChange={(e) => setPlaylistId(e.target.value)} className="flex-1 bg-white/70 border border-orange-200 rounded-lg px-2 py-2 text-sm outline-none">
+            <option value="">Select playlist...</option>
+            {onAddToPlaylist.options.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => { if (playlistId) { onAddToPlaylist.onConfirm(playlistId, song) ; setOpen(false); setPlaylistId('') } }}
+            className="px-3 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">
+            Add
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -165,20 +191,150 @@ function ChannelCard({ channel, onPlay }) {
   )
 }
 
+function AddMusicModal({ open, onClose, onAdded }) {
+  const [form, setForm] = useState({ title: '', artist: '', album: '', cover_url: '', audio_url: '', genre: '' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open) {
+      setForm({ title: '', artist: '', album: '', cover_url: '', audio_url: '', genre: '' })
+      setError('')
+      setLoading(false)
+    }
+  }, [open])
+
+  const submit = async () => {
+    setError('')
+    if (!form.title || !form.artist) {
+      setError('Title and Artist are required')
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/songs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || 'Failed to add song')
+      onAdded()
+      onClose()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-orange-900/20 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-lg bg-white rounded-2xl border border-orange-200 shadow-xl">
+        <div className="flex items-center justify-between p-4 border-b border-orange-100">
+          <div className="flex items-center gap-2 text-orange-900 font-bold"><Plus className="w-5 h-5 text-orange-500"/> Add Music</div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-orange-50 text-orange-700"><X className="w-4 h-4"/></button>
+        </div>
+        <div className="p-4 grid grid-cols-1 gap-3">
+          <Input label="Title" value={form.title} onChange={(v) => setForm({ ...form, title: v })} required />
+          <Input label="Artist" value={form.artist} onChange={(v) => setForm({ ...form, artist: v })} required />
+          <Input label="Album" value={form.album} onChange={(v) => setForm({ ...form, album: v })} />
+          <Input label="Cover URL" value={form.cover_url} onChange={(v) => setForm({ ...form, cover_url: v })} placeholder="https://...jpg" />
+          <Input label="Audio URL" value={form.audio_url} onChange={(v) => setForm({ ...form, audio_url: v })} placeholder="https://...mp3 or m3u8" />
+          <Input label="Genre" value={form.genre} onChange={(v) => setForm({ ...form, genre: v })} />
+          {error && <div className="text-sm text-red-600">{error}</div>}
+        </div>
+        <div className="p-4 pt-0 flex items-center justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-orange-200 text-orange-700 bg-white hover:bg-orange-50">Cancel</button>
+          <button disabled={loading} onClick={submit} className="px-4 py-2 rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-60">
+            {loading ? 'Adding...' : 'Add Song'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Input({ label, value, onChange, placeholder, required }) {
+  return (
+    <label className="text-sm">
+      <div className="mb-1 text-orange-800 font-medium">{label}{required && <span className="text-red-500"> *</span>}</div>
+      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        className="w-full px-3 py-2 rounded-lg bg-white/70 border border-orange-200 outline-none focus:ring-2 focus:ring-orange-300 text-orange-900 placeholder:text-orange-400" />
+    </label>
+  )
+}
+
+function Playlists({ playlists, onCreate, onPlay }) {
+  const [name, setName] = useState('')
+  const [desc, setDesc] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const create = async () => {
+    if (!name) return
+    setLoading(true)
+    try {
+      await onCreate(name, desc)
+      setName(''); setDesc('')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New playlist name" className="px-3 py-2 rounded-lg bg-white/70 border border-orange-200 outline-none" />
+        <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (optional)" className="px-3 py-2 rounded-lg bg-white/70 border border-orange-200 outline-none sm:col-span-2" />
+        <button disabled={loading || !name} onClick={create} className="px-3 py-2 rounded-lg bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-60 sm:col-span-3">Create Playlist</button>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {playlists.map(p => (
+          <div key={p.id} className="p-4 rounded-xl bg-white/70 border border-orange-200 hover:border-orange-300 hover:shadow-md transition">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-orange-200 to-rose-200 flex items-center justify-center text-orange-700">
+                <Disc3 className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <div className="font-semibold text-orange-900">{p.name}</div>
+                <div className="text-xs text-orange-600">{p.song_ids?.length || 0} song(s)</div>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <button onClick={() => onPlay(p)} className="px-3 py-2 rounded-lg bg-orange-500 text-white hover:bg-orange-600 text-sm inline-flex items-center gap-1"><Play className="w-4 h-4"/> Play</button>
+            </div>
+          </div>
+        ))}
+        {playlists.length === 0 && (
+          <div className="col-span-full text-orange-600 text-sm">No playlists yet. Create one above, then add songs to it from the songs list.</div>
+        )}
+      </div>
+    </div>
+  )}
+
 export default function App() {
   const [songs, setSongs] = useState([])
   const [channels, setChannels] = useState([])
+  const [playlists, setPlaylists] = useState([])
   const [query, setQuery] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
+  const [toast, setToast] = useState('')
   const player = useAudio(null)
   const [current, setCurrent] = useState(null)
 
-  const search = (q) => {
-    setQuery(q)
-    fetch(`${API_BASE}/api/songs?query=${encodeURIComponent(q)}`)
+  const showToast = (t) => { setToast(t); setTimeout(() => setToast(''), 2500) }
+
+  const fetchSongs = (q = '') => {
+    const url = q ? `${API_BASE}/api/songs?query=${encodeURIComponent(q)}` : `${API_BASE}/api/songs`
+    fetch(url)
       .then(res => res.json())
       .then(data => setSongs(data.items || []))
       .catch(() => {})
   }
+
+  const fetchPlaylists = () => {
+    fetch(`${API_BASE}/api/playlists`).then(r => r.json()).then(d => setPlaylists(d.items || []))
+  }
+
+  const search = (q) => { setQuery(q); fetchSongs(q) }
 
   const loadChannels = () => {
     fetch(`${API_BASE}/api/channels`)
@@ -188,8 +344,9 @@ export default function App() {
   }
 
   useEffect(() => {
+    fetchSongs()
     loadChannels()
-    // try seeding channels if empty
+    fetchPlaylists()
     setTimeout(() => { fetch(`${API_BASE}/api/channels/seed`, { method: 'POST' }).catch(() => {}) }, 500)
   }, [])
 
@@ -209,10 +366,36 @@ export default function App() {
     if (s.audio_url) player.setUrl(s.audio_url)
   }
 
+  const createPlaylist = async (name, description) => {
+    const res = await fetch(`${API_BASE}/api/playlists`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, description }) })
+    if (res.ok) { fetchPlaylists(); showToast('Playlist created') }
+  }
+
+  const addSongToPlaylist = async (playlistId, song) => {
+    const res = await fetch(`${API_BASE}/api/playlists/add`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playlist_id: playlistId, song_id: song.id }) })
+    if (res.ok) { fetchPlaylists(); showToast('Added to playlist') }
+  }
+
+  const playPlaylist = async (pl) => {
+    // Ensure we have songs available and filter by IDs
+    let list = songs
+    if (!songs.length) {
+      try { const r = await fetch(`${API_BASE}/api/songs`); const d = await r.json(); list = d.items || [] } catch {}
+    }
+    const byId = new Map(list.map(s => [s.id, s]))
+    const ordered = (pl.song_ids || []).map(id => byId.get(id)).filter(Boolean)
+    if (ordered.length) {
+      const first = ordered[0]
+      playSong(first)
+    } else {
+      showToast('This playlist has no playable songs yet')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-rose-50 text-orange-900">
       <div className="max-w-6xl mx-auto px-4 py-6">
-        <Header onSearch={search} />
+        <Header onSearch={search} onOpenAdd={() => setShowAdd(true)} />
         <Hero />
 
         <div className="flex items-center gap-3 mt-6">
@@ -235,7 +418,7 @@ export default function App() {
         <SectionTitle icon={ListMusic} title={query ? `Results for "${query}"` : 'Top Songs'} />
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {songs.map(s => (
-            <SongCard key={s.id || s.title} song={s} onPlay={playSong} />
+            <SongCard key={s.id || s.title} song={s} onPlay={playSong} onAddToPlaylist={{ options: playlists, onConfirm: addSongToPlaylist }} />
           ))}
           {songs.length === 0 && (
             <div className="col-span-full text-orange-600 text-sm">Search for songs or use the voice button to find something to play.</div>
@@ -251,7 +434,16 @@ export default function App() {
             <div className="col-span-full text-orange-600 text-sm">No channels yet. Seeding some defaults...</div>
           )}
         </div>
+
+        <SectionTitle icon={Disc3} title="Playlists" />
+        <Playlists playlists={playlists} onCreate={createPlaylist} onPlay={playPlaylist} />
       </div>
+
+      <AddMusicModal open={showAdd} onClose={() => setShowAdd(false)} onAdded={() => { fetchSongs(); showToast('Song added') }} />
+
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-orange-600 text-white shadow-lg text-sm">{toast}</div>
+      )}
     </div>
   )
 }
